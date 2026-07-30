@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PML Relay MES</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- FIRST-RUN SETUP MODAL: asks for the deployed Apps Script /exec URL -->
+    <div id="setupModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:2000; justify-content:center; align-items:center;">
+        <div style="background:white; padding:25px; border-radius:8px; width:90%; max-width:480px;">
+            <h3 style="margin-top:0;">One-time setup</h3>
+            <p style="font-size:13px; color:#555;">Paste your deployed Apps Script Web App URL (ends in <code>/exec</code>). This is saved in this browser only — you only need to do this once per device.</p>
+            <input type="text" id="setupUrlInput" placeholder="https://script.google.com/macros/s/XXXX/exec" style="width:100%; margin-bottom:12px;">
+            <button type="button" class="btn-submit" onclick="saveSetupUrl()">Save & Continue</button>
+        </div>
+    </div>
+
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+        <div class="header-section">
+            <h1 class="logo-text">PML</h1>
+            <div class="header-title">Relay MES<br>& Traceability</div>
+        </div>
+        <nav class="nav-menu" role="navigation" aria-label="Main Menu">
+            <button class="nav-btn active" onclick="openTab('tab-jo')">1. Job Orders</button>
+            <button class="nav-btn" onclick="openTab('tab-grn-iqc')">2. GRN & IQC</button>
+            <button class="nav-btn" onclick="openTab('tab-assembly')">3. Assembly & Laser</button>
+            <button class="nav-btn" onclick="openTab('tab-quality')">4. Quality (EOL & PDI)</button>
+            <button class="nav-btn" onclick="openTab('tab-trackers')">5. Live Trackers</button>
+            <button class="nav-btn" onclick="openTab('tab-trace')">6. Serial Traceability</button>
+            <button class="nav-btn" onclick="openSettings()" style="margin-top:20px; color:#999; font-size:12px;">⚙ Change API URL</button>
+        </nav>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="main-content">
+
+        <!-- GLOBAL DATALISTS (Hidden) -->
+        <datalist id="list_Created_By"></datalist>
+        <datalist id="list_Part_ID"></datalist>
+        <datalist id="list_Final_Part_ID"></datalist>
+        <datalist id="list_Tester"></datalist>
+        <datalist id="list_Received_By"></datalist>
+        <datalist id="list_Inspector"></datalist>
+
+        <!-- TAB 1: JOB ORDERS -->
+        <section id="tab-jo" class="tab-content active">
+            <h2 class="section-title">Job Order Creation</h2>
+            <form class="input-card" id="form-jo" onsubmit="submitJobOrder(event)">
+                <fieldset class="input-grid">
+                    <legend class="hidden">Job Order Details</legend>
+                    <div class="field-group">
+                        <label for="joNumber">Job Order Number <span class="required">*</span></label>
+                        <input type="text" id="joNumber" required pattern="^[SE]\d{2}\d{2}\d{4}$" title="Format: S/E + YY + MM + 4 digits (e.g. S26070001)">
+                    </div>
+
+                    <div class="field-group">
+                        <label for="joPartId">Part ID <span class="required">*</span></label>
+                        <div class="scan-row">
+                            <input type="text" id="joPartId" list="list_Part_ID" class="searchable-dropdown" data-list="Part_ID" placeholder="Search..." required autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Part_ID', 'joPartId')">+ Add</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group">
+                        <label for="joPartType">Part Type <span class="required">*</span></label>
+                        <select id="joPartType" required>
+                            <option value="">-- Select --</option>
+                            <option value="RM">Raw Material</option>
+                            <option value="Sub-Assembly">Sub-Assembly Part</option>
+                            <option value="Child Part">Child Part</option>
+                        </select>
+                    </div>
+
+                    <div class="field-group">
+                        <label for="joQty">Quantity <span class="required">*</span></label>
+                        <input type="number" id="joQty" min="1" required>
+                    </div>
+
+                    <div class="field-group">
+                        <label for="joPerson">Created By <span class="required">*</span></label>
+                        <div class="scan-row">
+                            <input type="text" id="joPerson" list="list_Created_By" class="searchable-dropdown" data-list="Created_By" placeholder="Search..." required autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Created_By', 'joPerson')">+ Add</button>
+                        </div>
+                    </div>
+                </fieldset>
+                <button type="submit" class="btn-submit" id="btn-jo">Create Job Order</button>
+            </form>
+        </section>
+
+        <!-- TAB 2: GRN & IQC -->
+        <section id="tab-grn-iqc" class="tab-content">
+            <h2 class="section-title">Goods Receipt & IQC</h2>
+            <form class="input-card" id="form-grn" onsubmit="submitGRN(event)">
+                <span class="help-text">Record the GRN details, incoming quality inspection, and release routing in a single step.</span>
+                <fieldset class="input-grid">
+
+                    <div class="field-group">
+                        <label for="grnJO">Job Order Number *</label>
+                        <div class="scan-row">
+                            <input type="text" id="grnJO" required>
+                            <button type="button" class="scan-btn" onclick="startGRNScan()">📷</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group"><label for="grnNumber">GRN Number *</label><input type="text" id="grnNumber" required></div>
+                    <div class="field-group"><label for="grnDate">GRN Date *</label><input type="date" id="grnDate" required></div>
+
+                    <div class="field-group">
+                        <label for="grnPartId">Part ID <span class="required">*</span></label>
+                        <div class="scan-row">
+                            <input type="text" id="grnPartId" list="list_Part_ID" class="searchable-dropdown" data-list="Part_ID" placeholder="Search..." required autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Part_ID', 'grnPartId')">+ Add</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group"><label for="grnQty">Qty Received *</label><input type="number" id="grnQty" min="1" required></div>
+
+                    <div class="field-group">
+                        <label for="grnPerson">Received By <span class="required">*</span></label>
+                        <div class="scan-row">
+                            <input type="text" id="grnPerson" list="list_Received_By" class="searchable-dropdown" data-list="Received_By" placeholder="Search..." required autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Received_By', 'grnPerson')">+ Add</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group">
+                        <label for="iqcResult">IQC Result *</label>
+                        <select id="iqcResult" required onchange="toggleReleaseProcess()">
+                            <option value="">-- Select --</option>
+                            <option value="OK">OK</option>
+                            <option value="NOT OK">NOT OK</option>
+                            <option value="ACCEPTED ON DEVIATION">ACCEPTED ON DEVIATION</option>
+                        </select>
+                    </div>
+
+                    <div class="field-group">
+                        <label for="iqcInspector">Inspector *</label>
+                        <div class="scan-row">
+                            <input type="text" id="iqcInspector" list="list_Inspector" class="searchable-dropdown" data-list="Inspector" placeholder="Search..." required autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Inspector', 'iqcInspector')">+ Add</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group" id="releaseProcessGroup" style="display:none;">
+                        <label for="grnReleaseProcess">Release to Process *</label>
+                        <div class="scan-row">
+                            <select id="grnReleaseProcess"><option value="">-- Loading... --</option></select>
+                            <button type="button" class="btn-secondary" id="btn-add-process" onclick="addNewGRNProcess()">+ Add</button>
+                        </div>
+                    </div>
+                </fieldset>
+                <button type="submit" class="btn-submit" id="btn-grn" style="background:#ef6c00;">Save GRN & IQC Entry</button>
+            </form>
+        </section>
+
+        <!-- TAB 3: ASSEMBLY & LASER -->
+        <section id="tab-assembly" class="tab-content">
+            <h2 class="section-title">Assembly Tracking</h2>
+            <div class="input-card">
+                <span class="help-text">Enter the Relay Part ID and click "Load BOM" to automatically fetch required components.</span>
+
+                <div class="input-grid">
+                    <div class="field-group">
+                        <label for="asmFinalPartId">Relay Part ID *</label>
+                        <div class="scan-row">
+                            <input type="text" id="asmFinalPartId" list="list_Final_Part_ID" class="searchable-dropdown" data-list="Final_Part_ID" placeholder="Search..." autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Final_Part_ID', 'asmFinalPartId')">+ Add</button>
+                            <button type="button" class="btn-secondary" id="btn-load-bom" onclick="loadBOM()" style="background:#1565c0;">Load BOM</button>
+                        </div>
+                    </div>
+                </div>
+
+                <table id="asmTable" style="display:none; margin-top:20px;">
+                    <thead><tr><th>Component ID</th><th style="width:35%;">Consumed JO *</th><th style="width:15%;">Qty Used *</th><th style="width:10%;">Action</th></tr></thead>
+                    <tbody id="asmBody"></tbody>
+                </table>
+
+                <div class="input-grid" style="margin-top:20px; padding-top:20px; border-top:1px dashed #ccc; align-items:end;">
+                    <div class="field-group">
+                        <label for="asmCompJO">Consumed JO</label>
+                        <div class="scan-row">
+                            <input type="text" id="asmCompJO">
+                            <button type="button" class="scan-btn" onclick="startScan('asmCompJO')">📷</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group">
+                        <label for="asmCompPartId">Consumed Component ID</label>
+                        <input type="text" id="asmCompPartId">
+                    </div>
+
+                    <div class="field-group">
+                        <label for="asmCompQty">Qty Used</label>
+                        <input type="number" id="asmCompQty">
+                    </div>
+
+                    <button type="button" class="btn-secondary" onclick="addAssemblyComp()">+ Add Extra</button>
+                </div>
+
+                <button type="button" class="btn-submit" id="btn-asm" style="background:#0288d1;" onclick="submitAssembly()">Save Assembly Log</button>
+            </div>
+
+            <h2 class="section-title">Laser Marking (Serial Registration)</h2>
+            <form class="input-card" id="form-laser" onsubmit="submitLaser(event)">
+                <fieldset class="input-grid">
+                    <div class="field-group">
+                        <label for="lmPartId">Relay Part ID *</label>
+                        <div class="scan-row">
+                            <input type="text" id="lmPartId" list="list_Final_Part_ID" class="searchable-dropdown" data-list="Final_Part_ID" placeholder="Search..." required autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Final_Part_ID', 'lmPartId')">+ Add</button>
+                        </div>
+                    </div>
+
+                    <div class="field-group"><label for="lmSerial">Scan Serial *</label>
+                        <div class="scan-row"><input type="text" id="lmSerial" required><button type="button" class="scan-btn" onclick="startScan('lmSerial')">📷</button></div>
+                    </div>
+                    <div class="field-group"><label for="lmDate">Marking Date *</label><input type="date" id="lmDate" required></div>
+                </fieldset>
+                <button type="submit" class="btn-submit" id="btn-laser" style="background:#f9a825; color:black;">Register Serial</button>
+            </form>
+        </section>
+
+        <!-- TAB 4: QUALITY -->
+        <section id="tab-quality" class="tab-content">
+            <h2 class="section-title">End of Line (EOL) Test</h2>
+            <form class="input-card" id="form-eol" onsubmit="submitEOL(event)">
+                <fieldset class="input-grid">
+                    <div class="field-group"><label for="eolSerial">Scan Serial *</label>
+                        <div class="scan-row"><input type="text" id="eolSerial" required><button type="button" class="scan-btn" onclick="startScan('eolSerial')">📷</button></div>
+                    </div>
+                    <div class="field-group"><label for="eolResult">Result *</label><select id="eolResult" required><option value="">-- Select --</option><option value="Pass">Pass</option><option value="Fail">Fail</option><option value="Rework">Rework</option></select></div>
+
+                    <div class="field-group">
+                        <label for="eolTester">Tester *</label>
+                        <div class="scan-row">
+                            <input type="text" id="eolTester" list="list_Tester" class="searchable-dropdown" data-list="Tester" placeholder="Search..." required autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Tester', 'eolTester')">+ Add</button>
+                        </div>
+                    </div>
+                </fieldset>
+                <button type="submit" class="btn-submit" id="btn-eol" style="background:#1565c0;">Log EOL Test</button>
+            </form>
+
+            <h2 class="section-title">Pre-Dispatch Inspection (PDI)</h2>
+            <form class="input-card" id="form-pdi" onsubmit="submitPDI(event)">
+                <fieldset class="input-grid">
+                    <div class="field-group"><label for="pdiSerial">Scan Serial *</label>
+                        <div class="scan-row"><input type="text" id="pdiSerial" required><button type="button" class="scan-btn" onclick="startScan('pdiSerial')">📷</button></div>
+                    </div>
+                    <div class="field-group"><label for="pdiResult">Result *</label><select id="pdiResult" required><option value="">-- Select --</option><option value="Pass">Pass - Ready to Ship</option><option value="Fail">Fail - Rework</option></select></div>
+
+                    <div class="field-group">
+                        <label for="pdiTester">Tester *</label>
+                        <div class="scan-row">
+                            <input type="text" id="pdiTester" list="list_Tester" class="searchable-dropdown" data-list="Tester" placeholder="Search..." required autocomplete="off">
+                            <button type="button" class="btn-secondary" onclick="addGlobalItem('Tester', 'pdiTester')">+ Add</button>
+                        </div>
+                    </div>
+                </fieldset>
+                <button type="submit" class="btn-submit" id="btn-pdi" style="background:#2e7d32;">Log PDI Decision</button>
+            </form>
+        </section>
+
+        <!-- TAB 5: TRACKERS -->
+        <section id="tab-trackers" class="tab-content">
+            <h2 class="section-title">Job Order Tracker</h2>
+            <button class="btn-secondary" onclick="loadJOTracker()" style="margin-bottom:10px;">↻ Refresh</button>
+            <div id="joLoader" aria-live="polite">Loading...</div>
+            <table id="joTable" style="display:none;">
+                <thead><tr><th>JO Number</th><th>Part ID</th><th>Type</th><th>Qty</th><th>Status</th><th>Current Stage</th></tr></thead>
+                <tbody id="joBody"></tbody>
+            </table>
+
+            <h2 class="section-title" style="margin-top:40px;">Assembly Tracker</h2>
+            <button class="btn-secondary" onclick="loadAsmTracker()" style="margin-bottom:10px;">↻ Refresh</button>
+            <div id="asmLoader" aria-live="polite">Loading...</div>
+            <table id="asmTrackerTable" style="display:none;">
+                <thead><tr><th>Final Part ID</th><th>Components Logged</th><th>Serials Marked</th><th>Current Stage</th></tr></thead>
+                <tbody id="asmTrackerBody"></tbody>
+            </table>
+        </section>
+
+        <!-- TAB 6: TRACEABILITY -->
+        <section id="tab-trace" class="tab-content">
+            <h2 class="section-title">Serial Traceability Lookup</h2>
+            <form class="input-card" id="form-trace" onsubmit="lookupTrace(event)">
+                <fieldset class="input-grid">
+                    <div class="field-group">
+                        <label for="traceSerial">Enter/Scan Serial Number</label>
+                        <div class="scan-row"><input type="text" id="traceSerial" required><button type="button" class="scan-btn" onclick="startScan('traceSerial')">📷</button></div>
+                    </div>
+                </fieldset>
+                <button type="submit" class="btn-submit" id="btn-trace" style="background:#424242;">Trace Serial</button>
+            </form>
+            <div id="traceResult" aria-live="polite" style="margin-top:20px; font-size:14px; background:white; padding:20px; border-radius:8px; border:1px solid #ccc; display:none;"></div>
+        </section>
+    </main>
+
+    <!-- SCANNER MODAL (Hidden) -->
+    <div id="scannerModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center;">
+        <div style="background:white; padding:20px; border-radius:8px; width:90%; max-width:400px; text-align:center;">
+            <h3 style="margin-top:0;">Scan Barcode</h3>
+            <div id="reader" style="width:100%; margin-bottom:15px;"></div>
+            <p id="scannerStatus" style="font-size:12px; color:#666;"></p>
+            <button type="button" onclick="stopScan()" style="background:#d32f2f; color:white; border:none; padding:10px; border-radius:4px; width:100%;">Cancel Scan</button>
+        </div>
+    </div>
+
+    <!-- QR PRINT MODAL (Hidden) -->
+    <div id="qrPrintModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center;">
+        <div style="background:white; padding:20px; border-radius:8px; width:90%; max-width:400px; text-align:center;">
+            <h3 style="margin-top:0;">GRN Label</h3>
+            <div id="qrcodeDisplay" style="display:flex; justify-content:center; margin-bottom:15px;"></div>
+            <div id="qrDataDisplay" style="text-align:left; font-size:13px; margin-bottom:15px;"></div>
+            <button type="button" onclick="closeQRModal()" style="background:#1a237e; color:white; border:none; padding:10px; border-radius:4px; width:100%;">Close</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
